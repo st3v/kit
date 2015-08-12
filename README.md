@@ -11,19 +11,19 @@ you can focus on your business logic.
 
 ### Examples
 
-The best way to understand Go kit is probably by constructing an example
-service from first principles. This can serve as a blueprint for your own new
-service, or demonstrate how to adapt your existing service to use Go kit
-components. See [the examples README][examples] for more.
+Perhaps the best way to understand Go kit is to follow along as we build an
+[example service][examples] from first principles. This can serve as a
+blueprint for your own new service, or demonstrate how to adapt your existing
+service to use Go kit components.
 
 [examples]: https://github.com/go-kit/kit/tree/master/examples
 
 ### Endpoint
 
 Go kit primarily deals in the RPC messaging pattern. We use an abstraction
-called an **[endpoint][]** to model invidivual RPCs. An endpoint can be both
+called an **[endpoint][]** to model invidivual RPCs. An endpoint can be
 implemented by a server, and called by a client. It's the fundamental building
-block of many of Go kit's components.
+block of many Go kit components.
 
 [endpoint]: https://github.com/go-kit/kit/tree/master/endpoint/endpoint.go
 
@@ -151,22 +151,14 @@ See also the
 - Having opinions on deployment, orchestration, process supervision, etc.
 - Having opinions on configuration passing — flags, env vars, files, etc.
 
-## Component status
+## Contributing
 
-- [API stability](https://github.com/go-kit/kit/blob/master/rfc/rfc007-api-stability.md) — **adopted**
-- [`package log`](https://github.com/go-kit/kit/tree/master/log) — **implemented**
-- [`package metrics`](https://github.com/go-kit/kit/tree/master/metrics) — **implemented**
-- [`package endpoint`](https://github.com/go-kit/kit/tree/master/endpoint) — **implemented**
-- [`package transport`](https://github.com/go-kit/kit/tree/master/transport) — **implemented**
-- [`package circuitbreaker`](https://github.com/go-kit/kit/tree/master/circuitbreaker) — **implemented**
-- [`package loadbalancer`](https://github.com/go-kit/kit/tree/master/loadbalancer) — **implemented**
-- [`package ratelimit`](https://github.com/go-kit/kit/tree/master/ratelimit) — **implemented**
-- [`package tracing`](https://github.com/go-kit/kit/tree/master/tracing) — prototyping
-- Client patterns — prototyping
-- Service discovery — pending
-- Example [addsvc](https://github.com/go-kit/kit/tree/master/addsvc) — **implemented**
+Please see [CONTRIBUTING.md]. Thank you, [contributors]!
 
-### Dependency management
+[CONTRIBUTING.md]: /CONTRIBUTING.md
+[contributors]: https://github.com/go-kit/kit/graphs/contributors
+
+## Dependency management
 
 Users who import Go kit into their `package main` are responsible to organize
 and maintain all of their dependencies to ensure code compatibility and build
@@ -176,14 +168,7 @@ reproducibility. Go kit makes no direct use of dependency management tools like
 We will use a variety of continuous integration providers to find and fix
 compatibility problems as soon as they occur.
 
-## Contributing
-
-Please see [CONTRIBUTING.md]. Thank you, [contributors]!
-
-[CONTRIBUTING.md]: /CONTRIBUTING.md
-[contributors]: https://github.com/go-kit/kit/graphs/contributors
-
-### API stability policy
+## API stability policy
 
 The Go kit project depends on code maintained by others.
 This includes the Go standard library and sub-repositories and other external libraries.
