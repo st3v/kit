@@ -195,8 +195,8 @@ func encodeResponse(w http.ResponseWriter, response interface{}) error {
 The complete service is [stringsvc](https://github.com/go-kit/kit/blob/master/examples/stringsvc).
 
 ```
-$ go get github.com/go-kit/kit/examples/stringsvc
-$ stringsvc
+$ go get github.com/go-kit/kit/examples/stringsvc1
+$ stringsvc1
 ```
 
 ```
@@ -213,7 +213,57 @@ Go kit provides simple, robust, and extensible packages for both concerns.
 
 ### Basic logging
 
-TODO
+Logging is an important and primary concern in any microservice.
+Any component that needs to log should treat the logger like a dependency, same as a database connection.
+So, we construct our logger in our `func main`, and pass it to components that need it.
+We never use a globally-scoped logger.
+
+Let's construct a logger, and use it to log requests to our service. To do
+that, we'll use the concept of a **middleware**, also known as decorator.
+A middleware is something that takes an endpoint and returns an endpoint.
+
+```go
+type Middleware func(Endpoint) Endpoint
+```
+
+When it's invoked, it can perform some action—like logging.
+Let's create a basic logging middleware.
+
+```go
+func loggingMiddleware(logger log.Logger) Middleware {
+	return func(next endpoint.Endpoint) endpoint.Endpoint {
+		return func(ctx context.Context, request interface{}) (interface{}, error) {
+			logger.Log("msg", "calling endpoint")
+			defer logger.Log("msg", "called endpoint")
+			return next(ctx, request)
+		}
+	}
+}
+```
+
+And wire it into each of our handlers.
+
+```go
+logger := log.NewLogfmtLogger(os.Stderr)
+
+var uppercase endpoint.Endpoint
+uppercase = makeUppercaseEndpoint(svc)
+uppercase = loggingMiddleware(logger.With("method", "uppercase"))(uppercase)
+
+var count endpoint.Endpoint
+count = makeCountEndpoint(svc)
+count = loggingMiddleware(logger.With("method", "count"))(count)
+
+uppercaseHandler := httptransport.Server{
+	Endpoint: uppercase,
+	// ...
+}
+
+countHandler := httptransport.Server{
+	Endpoint: count,
+	// ...
+}
+```
 
 ### Advanced logging
 
