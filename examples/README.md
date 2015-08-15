@@ -218,15 +218,14 @@ Any component that needs to log should treat the logger like a dependency, same 
 So, we construct our logger in our `func main`, and pass it to components that need it.
 We never use a globally-scoped logger.
 
-Let's construct a logger, and use it to log requests to our service. To do
-that, we'll use the concept of a **middleware**, also known as decorator.
-A middleware is something that takes an endpoint and returns an endpoint.
+We could pass a logger directly to our application logic, but there's a better way.
+Let's use a **middleware**, also known as decorator.
+That's something that takes an endpoint and returns an endpoint.
 
 ```go
 type Middleware func(Endpoint) Endpoint
 ```
 
-When it's invoked, it can perform some action—like logging.
 Let's create a basic logging middleware.
 
 ```go
@@ -246,13 +245,15 @@ And wire it into each of our handlers.
 ```go
 logger := log.NewLogfmtLogger(os.Stderr)
 
+svc := stringService{}
+
 var uppercase endpoint.Endpoint
 uppercase = makeUppercaseEndpoint(svc)
-uppercase = loggingMiddleware(logger.With("method", "uppercase"))(uppercase)
+uppercase = loggingMiddleware(log.NewContext(logger, "method", "uppercase"))(uppercase)
 
 var count endpoint.Endpoint
 count = makeCountEndpoint(svc)
-count = loggingMiddleware(logger.With("method", "count"))(count)
+count = loggingMiddleware(log.NewContext(logger, "method", "count"))(count)
 
 uppercaseHandler := httptransport.Server{
 	Endpoint: uppercase,
@@ -265,13 +266,84 @@ countHandler := httptransport.Server{
 }
 ```
 
+It turns out that this technique is useful for a lot more than just logging.
+Most Go kit components are implemented as endpoint middlewares.
+
 ### Advanced logging
 
-TODO
+But what if we want to log in our application domain, like the parameters that are passed in?
+We can define a middleware for our service, and get the same, nice, composable behavior.
+Since our StringService is defined as an interface, we just need to make a new type
+ which wraps an existing StringService, and performs the extra logging duties.
+
+```go
+type loggingMiddleware struct{
+	logger log.Logger
+	StringService
+}
+
+
+func (mw loggingMiddleware) Uppercase(s string) (output string, err error) {
+	defer func(begin time.Time) {
+		logger.Log(
+			"method", "uppercase",
+			"input", s,
+			"output", out,
+			"err", err,
+			"took", time.Since(begin),
+		)
+	}(time.Now())
+	output, err = mw.StringService.Uppercase(s)
+	return
+}
+
+func (mw loggingMiddleware) Count(s string) (n int) {
+	defer func(begin time.Time) {
+		logger.Log(
+			"method", "count",
+			"input", s,
+			"n", n,
+			"took", time.Since(begin),
+		)
+	}(time.Now())
+	n = mw.StringService.Count(s)
+	return
+}
+```
+
+And wire it in.
+
+```go
+logger := log.NewLogfmtLogger(os.Stderr)
+
+svc := stringService{}
+svc = loggingMiddleware{logger, svc}
+
+uppercaseHandler := httptransport.Server{
+	Endpoint: makeUppercaseEndpoint(svc),
+	// ...
+}
+
+countHandler := httptransport.Server{
+	Endpoint: makeCountEndpoint(svc),
+	// ...
+}
+```
+
+Use endpoint middlewares for transport-domain concerns, like circuit breaking and rate limiting.
+Use service middlewares for business-domain concerns, like logging and instrumentation.
+Speaking of instrumentation...
 
 ### Instrumentation
 
-TODO
+Proper instrumentation is just as important as logging.
+But what is instrumentation? There are potentially several definitions.
+In Go kit, instrumentation means using **package metrics** to record meaningful statistics about your service's runtime behavior.
+Counting the number of jobs processed,
+ recording the duration of requests after they've finished,
+  and tracking the number of in-flight operations would all be considered instrumentation.
+
+
 
 ## Calling other services
 
