@@ -7,16 +7,20 @@ TODO
 	1. [Requests and responses](#requests-and-responses)
 	1. [Endpoints](#endpoints)
 	1. [Transports](#transports)
-	1. [Test it out](#test-it-out)
+	1. [stringsvc1](#stringsvc1)
 1. [Logging and instrumentation](#logging-and-instrumentation)
 	1. [Basic logging](#basic-logging)
 	1. [Advanced logging](#advanced-logging)
 	1. [Instrumentation](#instrumentation)
+	1. [stringsvc2](#stringsvc2)
 1. [Calling other services](#calling-other-services)
 	1. [Client-side endpoints and middleware](#client-side-endpoints-and-middleware)
 	1. [Service discovery and load balancing](#service-discovery-and-load-balancing)
+	1. [Using a service middleware](#using-a-service-middleware)
+	1. [stringsvc3](#stringsvc3)
 1. [Creating a client package](#creating-a-client-package)
 1. [Request tracing](#request-tracing)
+1. [A note on context](#a-note-on-context)
 
 ## A minimal example
 
@@ -575,29 +579,26 @@ Finally, a [loadbalancer.Retry][retry] converts the load balancer to a client en
 [retry]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Retry
 
 ```go
-import (
-	"github.com/go-kit/kit/loadbalancer/dnssrv"
-	"github.com/go-kit/kit/loadbalancer"
-)
+name := "mysvc.internal.net"
+ttl := 5 * time.Second
+publisher := dnssrv.NewPublisher(name, ttl, factory, logger) // could use any Publisher here
+lb := loadbalancer.NewRoundRobin(publisher)
+maxAttempts := 3
+maxTime := 100*time.Millisecond
+clientEndpoint := loadbalancer.Retry(maxAttempts, maxTime, lb)
+```
 
-func main() {
-	// ...
+The factory is a function that converts an instance string (typically a host:port) to an endpoint.
 
-	name := "mysvc.internal.net"
-	ttl := 5 * time.Second
-	publisher := dnssrv.NewPublisher(name, ttl, factory, logger) // could use any Publisher here
-	lb := loadbalancer.NewRoundRobin(publisher)
-	maxAttempts := 3
-	maxTime := 100*time.Millisecond
-	clientEndpoint := loadbalancer.Retry(maxAttempts, maxTime, lb)
-
-	// ...
-}
-
+```
 func factory(instance string) (endpoint.Endpoint, error) {
-	// TODO use httptransport.Client
+	// TODO
 }
 ```
+
+### Using a service middleware
+
+TODO
 
 ### stringsvc3
 
@@ -628,5 +629,9 @@ listen=:8002 method=uppercase input="hello, world" output="HELLO, WORLD" err=nul
 TODO
 
 ## Request tracing
+
+TODO
+
+## A note on context
 
 TODO
