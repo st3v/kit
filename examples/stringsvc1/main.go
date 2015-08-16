@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -71,29 +72,23 @@ func makeCountEndpoint(svc StringService) endpoint.Endpoint {
 	}
 }
 
-func decodeUppercaseRequest(r *http.Request) (interface{}, error) {
+func decodeUppercaseRequest(r io.Reader) (interface{}, error) {
 	var request uppercaseRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		return nil, err
-	}
-	if err := r.Body.Close(); err != nil {
+	if err := json.NewDecoder(r).Decode(&request); err != nil {
 		return nil, err
 	}
 	return request, nil
 }
 
-func decodeCountRequest(r *http.Request) (interface{}, error) {
+func decodeCountRequest(r io.Reader) (interface{}, error) {
 	var request countRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		return nil, err
-	}
-	if err := r.Body.Close(); err != nil {
+	if err := json.NewDecoder(r).Decode(&request); err != nil {
 		return nil, err
 	}
 	return request, nil
 }
 
-func encodeResponse(w http.ResponseWriter, response interface{}) error {
+func encodeResponse(w io.Writer, response interface{}) error {
 	return json.NewEncoder(w).Encode(response)
 }
 

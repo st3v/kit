@@ -59,6 +59,6 @@ func main() {
 
 	http.Handle("/uppercase", uppercaseHandler)
 	http.Handle("/count", countHandler)
-	logger.Log("msg", "HTTP", "addr", ":8080")
-	logger.Log("err", http.ListenAndServe(":8080", nil))
+	_ = logger.Log("msg", "HTTP", "addr", ":8080")
+	_ = logger.Log("err", http.ListenAndServe(":8080", nil))
 }

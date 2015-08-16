@@ -3,6 +3,7 @@ addsvc/client/addcli/addcli
 cover.out
 examples/stringsvc1/stringsvc1
 examples/stringsvc2/stringsvc2
+examples/stringsvc3/stringsvc3
 
 # Compiled Object files, Static and Dynamic libs (Shared Objects)
 *.o
