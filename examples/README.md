@@ -20,7 +20,8 @@ TODO
 	1. [stringsvc3](#stringsvc3)
 1. [Creating a client package](#creating-a-client-package)
 1. [Request tracing](#request-tracing)
-1. [A note on context](#a-note-on-context)
+1. [Context and your service](#context-and-your-service)
+1. [The final product](#the-final-product)
 
 ## A minimal example
 
@@ -210,23 +211,22 @@ $ curl -XPOST -d'{"s":"hello, world"}' localhost:8080/count
 ## Logging and instrumentation
 
 No service can be considered production-ready without thorough logging and instrumentation.
-Go kit provides simple, robust, and extensible packages for both concerns.
 
 ### Basic logging
 
-Logging is an important and primary concern in any microservice.
 Any component that needs to log should treat the logger like a dependency, same as a database connection.
 So, we construct our logger in our `func main`, and pass it to components that need it.
 We never use a globally-scoped logger.
 
-We could pass a logger directly to our application logic, but there's a better way.
+We could pass a logger directly into our stringService implementation, but there's a better way.
 Let's use a **middleware**, also known as decorator.
-That's something that takes an endpoint and returns an endpoint.
+A middleware is a function that takes an endpoint and returns an endpoint.
 
 ```go
 type Middleware func(Endpoint) Endpoint
 ```
 
+In between, it can do anything.
 Let's create a basic logging middleware.
 
 ```go
@@ -250,11 +250,11 @@ svc := stringService{}
 
 var uppercase endpoint.Endpoint
 uppercase = makeUppercaseEndpoint(svc)
-uppercase = loggingMiddleware(log.NewContext(logger, "method", "uppercase"))(uppercase)
+uppercase = loggingMiddleware(log.NewContext(logger).With("method", "uppercase"))(uppercase)
 
 var count endpoint.Endpoint
 count = makeCountEndpoint(svc)
-count = loggingMiddleware(log.NewContext(logger, "method", "count"))(count)
+count = loggingMiddleware(log.NewContext(logger).With("method", "count"))(count)
 
 uppercaseHandler := httptransport.Server{
 	Endpoint: uppercase,
@@ -268,12 +268,12 @@ countHandler := httptransport.Server{
 ```
 
 It turns out that this technique is useful for a lot more than just logging.
-Most Go kit components are implemented as endpoint middlewares.
+Many Go kit components are implemented as endpoint middlewares.
 
 ### Advanced logging
 
 But what if we want to log in our application domain, like the parameters that are passed in?
-We can define a middleware for our service, and get the same, nice, composable behavior.
+It turns out that we can define a middleware for our service, and get the same nice and composable effects.
 Since our StringService is defined as an interface, we just need to make a new type
  which wraps an existing StringService, and performs the extra logging duties.
 
@@ -348,8 +348,6 @@ Speaking of instrumentation...
 
 ### Instrumentation
 
-Proper instrumentation is just as important as logging.
-But what is instrumentation? There are potentially several definitions.
 In Go kit, instrumentation means using **package metrics** to record statistics about your service's runtime behavior.
 Counting the number of jobs processed,
  recording the duration of requests after they've finished,
@@ -407,17 +405,15 @@ func main() {
 	requestCount := kitprometheus.NewCounter(stdprometheus.CounterOpts{
 		// ...
 	}, fieldKeys)
-
 	requestLatency := metrics.NewTimeHistogram(time.Microsecond, kitprometheus.NewSummary(stdprometheus.SummaryOpts{
 		// ...
 	}, fieldKeys))
-
 	countResult := kitprometheus.NewSummary(stdprometheus.SummaryOpts{
 		// ...
 	}, []string{}))
 
 	svc := stringService{}
-	svc = loggingMiddleware(logger, svc)
+	svc = loggingMiddleware{logger, svc}
 	svc = instrumentingMiddleware{requestCount, requestLatency, countResult, svc}
 
 	uppercaseHandler := httptransport.Server{
@@ -513,10 +509,9 @@ func makeUppercaseProxy(url string) endpoint.Endpoint {
 }
 ```
 
-We've created a **client endpoint**.
+We've created a client endpoint.
 It's exactly the same _type_ as a server endpoint, but we use it to invoke, rather than serve, a request.
 That symmetry is nice: it allows us to reuse the same set of value-add middlewares.
-
 And that's important, because calling a remote service over the network isn't the same as invoking a method on a local object.
 There are lots of failure modes we need to account for.
 
@@ -550,7 +545,7 @@ func main() {
 }
 ```
 
-Go kit provides a helper method in package endpoint to chain middlewares like this.
+Go kit provides a helper method to chain middlewares like this.
 Note that the application order is reversed.
 (Also note that it's important to wrap the circuit breaker with the rate limiter, and not the other way around.)
 
@@ -596,6 +591,8 @@ func factory(instance string) (endpoint.Endpoint, error) {
 }
 ```
 
+TODO note how we need to change the way we produce and apply rate limiters and circuit breakers.
+
 ### Using a service middleware
 
 TODO
@@ -632,6 +629,10 @@ TODO
 
 TODO
 
-## A note on context
+## Context and your service
+
+TODO
+
+## The final product
 
 TODO
