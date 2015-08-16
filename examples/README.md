@@ -462,15 +462,6 @@ We provide transport middlewares to solve many of the problems that come up.
 Let's provide a commandline flag to proxy uppercase requests to another service.
 
 ```go
-import (
-	"flag"
-	"encoding/json"
-
-	"golang.org/x/net/context"
-
-	"github.com/go-kit/kit/ratelimit"
-)
-
 func main() {
 	var (
 		listen = flag.String("listen", ":8080", "HTTP listen address")
@@ -489,9 +480,12 @@ func main() {
 
 	// ...
 }
+```
 
+The makeUppercaseProxy function just converts a URL to an endpoint.
+
+```go
 func makeUppercaseProxy(url string) endpoint.Endpoint {
-	// TODO we can provide a Client helper in transport/http
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		var buf bytes.Buffer
 		if err := json.NewEncoder(&buf).Encode(request); err != nil {
@@ -550,6 +544,7 @@ func main() {
 
 	// ...
 }
+```
 
 Go kit provides a helper method in package endpoint to chain middlewares like this.
 Note that the application order is reversed.
@@ -571,13 +566,13 @@ And they'll probably be dynamic, constantly changing as instances come up and go
 So, Go kit provides adapters to service discovery systems.
 
 How to construct those adapters differs depending on the specifics of the system.
-But they all implement the same [loadbalancer.Publisher][] interface.
-From there, we can wrap them with one of several [loadbalancer.LoadBalancer][] implementations.
-Finally, a [loadbalancer.Retry][] converts the load balancer to a client endpoint.
+But they all implement the same [loadbalancer.Publisher][publisher] interface.
+From there, we can wrap them with one of several [loadbalancer.LoadBalancer][loadbalancer] implementations.
+Finally, a [loadbalancer.Retry][retry] converts the load balancer to a client endpoint.
 
-[loadbalancer.Publisher]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Publisher
-[loadbalancer.LoadBalancer]: https://godoc.org/github.com/go-kit/kit/loadbalancer#LoadBalancer
-[loadbalancer.Retry]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Retry
+[publisher]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Publisher
+[loadBalancer]: https://godoc.org/github.com/go-kit/kit/loadbalancer#LoadBalancer
+[retry]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Retry
 
 ```go
 import (
