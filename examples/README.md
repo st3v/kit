@@ -9,8 +9,8 @@ TODO
 	1. [Transports](#transports)
 	1. [stringsvc1](#stringsvc1)
 1. [Logging and instrumentation](#logging-and-instrumentation)
-	1. [Basic logging](#basic-logging)
-	1. [Advanced logging](#advanced-logging)
+	1. [Transport logging](#transport-logging)
+	1. [Application logging](#application-logging)
 	1. [Instrumentation](#instrumentation)
 	1. [stringsvc2](#stringsvc2)
 1. [Calling other services](#calling-other-services)
@@ -18,9 +18,10 @@ TODO
 	1. [Service discovery and load balancing](#service-discovery-and-load-balancing)
 	1. [Using a service middleware](#using-a-service-middleware)
 	1. [stringsvc3](#stringsvc3)
-1. [Creating a client package](#creating-a-client-package)
-1. [Request tracing](#request-tracing)
-1. [Context and your service](#context-and-your-service)
+1. [Advanced topics](#advanced-topics)
+	1. [Creating a client package](#creating-a-client-package)
+	1. [Request tracing](#request-tracing)
+	1. [Threading a context](#threading-a-context)
 1. [The final product](#the-final-product)
 
 ## A minimal example
@@ -212,7 +213,7 @@ $ curl -XPOST -d'{"s":"hello, world"}' localhost:8080/count
 
 No service can be considered production-ready without thorough logging and instrumentation.
 
-### Basic logging
+### Transport logging
 
 Any component that needs to log should treat the logger like a dependency, same as a database connection.
 So, we construct our logger in our `func main`, and pass it to components that need it.
@@ -270,7 +271,7 @@ countHandler := httptransport.Server{
 It turns out that this technique is useful for a lot more than just logging.
 Many Go kit components are implemented as endpoint middlewares.
 
-### Advanced logging
+### Application logging
 
 But what if we want to log in our application domain, like the parameters that are passed in?
 It turns out that we can define a middleware for our service, and get the same nice and composable effects.
@@ -621,15 +622,17 @@ listen=:8001 method=uppercase input="hello, world" output="HELLO, WORLD" err=nul
 listen=:8002 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=133ms
 ```
 
-## Creating a client package
+## Advanced topics
+
+### Creating a client package
 
 TODO
 
-## Request tracing
+### Request tracing
 
 TODO
 
-## Context and your service
+### Threading a context
 
 TODO
 
