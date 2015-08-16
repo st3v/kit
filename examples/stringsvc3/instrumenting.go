@@ -7,14 +7,24 @@ import (
 	"github.com/go-kit/kit/metrics"
 )
 
-type instrumentingMiddleware struct {
+func instrumentingMiddleware(
+	requestCount metrics.Counter,
+	requestLatency metrics.TimeHistogram,
+	countResult metrics.Histogram,
+) ServiceMiddleware {
+	return func(next StringService) StringService {
+		return instrmw{requestCount, requestLatency, countResult, next}
+	}
+}
+
+type instrmw struct {
 	requestCount   metrics.Counter
 	requestLatency metrics.TimeHistogram
 	countResult    metrics.Histogram
 	StringService
 }
 
-func (mw instrumentingMiddleware) Uppercase(s string) (output string, err error) {
+func (mw instrmw) Uppercase(s string) (output string, err error) {
 	defer func(begin time.Time) {
 		methodField := metrics.Field{Key: "method", Value: "uppercase"}
 		errorField := metrics.Field{Key: "error", Value: fmt.Sprintf("%v", err)}
@@ -26,7 +36,7 @@ func (mw instrumentingMiddleware) Uppercase(s string) (output string, err error)
 	return
 }
 
-func (mw instrumentingMiddleware) Count(s string) (n int) {
+func (mw instrmw) Count(s string) (n int) {
 	defer func(begin time.Time) {
 		methodField := metrics.Field{Key: "method", Value: "count"}
 		errorField := metrics.Field{Key: "error", Value: fmt.Sprintf("%v", error(nil))}

@@ -4,15 +4,11 @@ import (
 	"flag"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/net/context"
 
-	"github.com/go-kit/kit/endpoint"
-	"github.com/go-kit/kit/loadbalancer"
-	"github.com/go-kit/kit/loadbalancer/static"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/metrics"
 	kitprometheus "github.com/go-kit/kit/metrics/prometheus"
@@ -22,12 +18,15 @@ import (
 func main() {
 	var (
 		listen = flag.String("listen", ":8080", "HTTP listen address")
-		proxy  = flag.String("proxy", "", "Optional URL to proxy uppercase requests")
+		proxy  = flag.String("proxy", "", "Optional comma-separated list of URLs to proxy uppercase requests")
 	)
 	flag.Parse()
 
+	var logger log.Logger
+	logger = log.NewLogfmtLogger(os.Stderr)
+	logger = log.NewContext(logger).With("listen", *listen)
+
 	ctx := context.Background()
-	logger := log.NewLogfmtLogger(os.Stderr)
 
 	fieldKeys := []string{"method", "error"}
 	requestCount := kitprometheus.NewCounter(stdprometheus.CounterOpts{
@@ -51,25 +50,13 @@ func main() {
 
 	var svc StringService
 	svc = stringService{}
-	svc = loggingMiddleware{logger, svc}
-	svc = instrumentingMiddleware{requestCount, requestLatency, countResult, svc}
-
-	var uppercase endpoint.Endpoint
-	if *proxy != "" {
-		var (
-			publisher   = static.NewPublisher(split(*proxy), factory, logger) // could use any Publisher here
-			lb          = loadbalancer.NewRoundRobin(publisher)
-			maxAttempts = 3
-			maxTime     = 100 * time.Millisecond
-		)
-		uppercase = loadbalancer.Retry(maxAttempts, maxTime, lb)
-	} else {
-		uppercase = makeUppercaseEndpoint(svc)
-	}
+	svc = proxyingMiddleware(*proxy, ctx, logger)(svc)
+	svc = loggingMiddleware(logger)(svc)
+	svc = instrumentingMiddleware(requestCount, requestLatency, countResult)(svc)
 
 	uppercaseHandler := httptransport.Server{
 		Context:    ctx,
-		Endpoint:   uppercase,
+		Endpoint:   makeUppercaseEndpoint(svc),
 		DecodeFunc: decodeUppercaseRequest,
 		EncodeFunc: encodeResponse,
 	}
@@ -85,12 +72,4 @@ func main() {
 	http.Handle("/count", countHandler)
 	_ = logger.Log("msg", "HTTP", "addr", *listen)
 	_ = logger.Log("err", http.ListenAndServe(*listen, nil))
-}
-
-func split(s string) []string {
-	a := strings.Split(s, ",")
-	for i := range a {
-		a[i] = strings.TrimSpace(a[i])
-	}
-	return a
 }
