@@ -13,15 +13,10 @@ TODO
 	1. [Advanced logging](#advanced-logging)
 	1. [Instrumentation](#instrumentation)
 1. [Calling other services](#calling-other-services)
-	1. [TODO](#todo)
-	1. [TODO](#todo)
+	1. [Client-side endpoints and middleware](#client-side-endpoints-and-middleware)
+	1. [Service discovery and load balancing](#service-discovery-and-load-balancing)
 1. [Creating a client package](#creating-a-client-package)
-	1. [Client-side endpoints](#client-side-endpoints)
-	1. [Service discovery](#service-discovery)
-	1. [Load balancing](#load-balancing)
 1. [Request tracing](#request-tracing)
-	1. [TODO](#todo)
-	1. [TODO](#todo)
 
 ## A minimal example
 
@@ -459,21 +454,181 @@ method=count input="hello, world" n=12 took=743ns
 
 ## Calling other services
 
-TODO
+It's rare that a service exists in a vacuum.
+Often, you need to call other services.
+**This is where Go kit shines**.
+We provide transport middlewares to solve many of the problems that come up.
+
+Let's provide a commandline flag to proxy uppercase requests to another service.
+
+```go
+import (
+	"flag"
+	"encoding/json"
+
+	"golang.org/x/net/context"
+
+	"github.com/go-kit/kit/ratelimit"
+)
+
+func main() {
+	var (
+		listen = flag.String("listen", ":8080", "HTTP listen address")
+		proxy  = flag.String("proxy", "", "Optional URL to proxy uppercase requests")
+	)
+	flag.Parse()
+
+	// ...
+
+	var uppercase endpoint.Endpoint
+	if *proxy != "" {
+		uppercase = makeUppercaseProxy(*proxy)
+	} else {
+		uppercase = makeUppercaseEndpoint(svc)
+	}
+
+	// ...
+}
+
+func makeUppercaseProxy(url string) endpoint.Endpoint {
+	// TODO we can provide a Client helper in transport/http
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(request); err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequest("GET", url, buf)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		var response uppercaseResponse
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			return nil, err
+		}
+		return response, nil
+	}
+}
+```
+
+We've created a **client endpoint**.
+It's exactly the same _type_ as a server endpoint, but we use it to invoke, rather than serve, a request.
+That symmetry is nice: it allows us to reuse the same set of value-add middlewares.
+
+And that's important, because calling a remote service over the network isn't the same as invoking a method on a local object.
+There are lots of failure modes we need to account for.
+
+### Client-side endpoints and middleware
+
+Let's add rate limiting and circuit breaking to the client endpoint.
+
+```go
+import (
+	jujuratelimit "github.com/juju/ratelimit"
+	"github.com/sony/gobreaker"
+
+	"github.com/go-kit/kit/circuitbreaker"
+	"github.com/go-kit/kit/endpoint"
+	kitratelimit "github.com/go-kit/kit/ratelimit"
+)
+
+func main() {
+	// ...
+
+	var uppercase endpoint.Endpoint
+	if *proxy != "" {
+		uppercase = makeUppercaseProxy(*proxy)
+		uppercase = circuitbreaker.NewGobreaker(gobreaker.NewBreaker(gobreaker.Settings{}))(uppercase)
+		uppercase = kitratelimit.NewTokenBucketLimiter(jujuratelimit.NewBucketWithRate(100, 100))(uppercase) // 100 QPS
+	} else {
+		uppercase = makeUppercaseEndpoint(svc)
+	}
+
+	// ...
+}
+
+Go kit provides a helper method in package endpoint to chain middlewares like this.
+Note that the application order is reversed.
+(Also note that it's important to wrap the circuit breaker with the rate limiter, and not the other way around.)
+
+```go
+uppercase = makeUppercaseProxy(*proxy)
+uppercase = endpoint.Chain(
+	kitratelimit.NewTokenBucketLimiter(jujuratelimit.NewBucketWithRate(100, 100)), // 100 QPS
+	circuitbreaker.NewGobreaker(gobreaker.NewBreaker(gobreaker.Settings{})),
+)(uppercase)
+```
+
+### Service discovery and load balancing
+
+What we've built so far is fine, as long as the proxying service has a single fixed URL.
+But in reality, we'll probably have a set of stateless service instances to choose from.
+And they'll probably be dynamic, constantly changing as instances come up and go down.
+So, Go kit provides adapters to service discovery systems.
+
+How to construct those adapters differs depending on the specifics of the system.
+But they all implement the same [loadbalancer.Publisher][] interface.
+From there, we can wrap them with one of several [loadbalancer.LoadBalancer][] implementations.
+Finally, a [loadbalancer.Retry][] converts the load balancer to a client endpoint.
+
+[loadbalancer.Publisher]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Publisher
+[loadbalancer.LoadBalancer]: https://godoc.org/github.com/go-kit/kit/loadbalancer#LoadBalancer
+[loadbalancer.Retry]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Retry
+
+```go
+import (
+	"github.com/go-kit/kit/loadbalancer/dnssrv"
+	"github.com/go-kit/kit/loadbalancer"
+)
+
+func main() {
+	// ...
+
+	name := "mysvc.internal.net"
+	ttl := 5 * time.Second
+	publisher := dnssrv.NewPublisher(name, ttl, factory, logger) // could use any Publisher here
+	lb := loadbalancer.NewRoundRobin(publisher)
+	maxAttempts := 3
+	maxTime := 100*time.Millisecond
+	clientEndpoint := loadbalancer.Retry(maxAttempts, maxTime, lb)
+
+	// ...
+}
+
+func factory(instance string) (endpoint.Endpoint, error) {
+	// TODO use httptransport.Client
+}
+```
+
+### stringsvc3
+
+The complete service so far is [stringsvc3][].
+
+[stringsvc3]: https://github.com/go-kit/kit/blob/master/examples/stringsvc3
+
+```
+$ go get github.com/go-kit/kit/examples/stringsvc3
+$ stringsvc3 -listen=:8001 &
+listen=:8001 proxy=none
+$ stringsvc3 -listen=:8002 -proxy=localhost:8001
+listen=:8002 proxy=localhost:8001
+```
+
+```
+$ curl -XPOST -d'{"s":"hello, world"}' localhost:8002/uppercase
+{"v":"HELLO, WORLD","err":null}
+```
+
+```
+listen=:8001 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=2.455µs
+listen=:8002 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=133ms
+```
 
 ## Creating a client package
-
-TODO
-
-### Client-side endpoints
-
-TODO
-
-### Service discovery
-
-TODO
-
-### Load balancing
 
 TODO
 
