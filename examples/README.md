@@ -190,9 +190,11 @@ func encodeResponse(w http.ResponseWriter, response interface{}) error {
 }
 ```
 
-### Test it out
+### stringsvc1
 
-The complete service is [stringsvc](https://github.com/go-kit/kit/blob/master/examples/stringsvc).
+The complete service so far is [stringsvc1][].
+
+[stringsvc1]: https://github.com/go-kit/kit/blob/master/examples/stringsvc1
 
 ```
 $ go get github.com/go-kit/kit/examples/stringsvc1
@@ -285,27 +287,29 @@ type loggingMiddleware struct{
 
 func (mw loggingMiddleware) Uppercase(s string) (output string, err error) {
 	defer func(begin time.Time) {
-		logger.Log(
+		mw.logger.Log(
 			"method", "uppercase",
 			"input", s,
-			"output", out,
+			"output", output,
 			"err", err,
 			"took", time.Since(begin),
 		)
 	}(time.Now())
+
 	output, err = mw.StringService.Uppercase(s)
 	return
 }
 
 func (mw loggingMiddleware) Count(s string) (n int) {
 	defer func(begin time.Time) {
-		logger.Log(
+		mw.logger.Log(
 			"method", "count",
 			"input", s,
 			"n", n,
 			"took", time.Since(begin),
 		)
 	}(time.Now())
+
 	n = mw.StringService.Count(s)
 	return
 }
@@ -314,19 +318,28 @@ func (mw loggingMiddleware) Count(s string) (n int) {
 And wire it in.
 
 ```go
-logger := log.NewLogfmtLogger(os.Stderr)
+import (
+	"os"
 
-svc := stringService{}
-svc = loggingMiddleware{logger, svc}
+	"github.com/go-kit/kit/log"
+	httptransport "github.com/go-kit/kit/transport/http"
+)
 
-uppercaseHandler := httptransport.Server{
-	Endpoint: makeUppercaseEndpoint(svc),
-	// ...
-}
+func main() {
+	logger := log.NewLogfmtLogger(os.Stderr)
 
-countHandler := httptransport.Server{
-	Endpoint: makeCountEndpoint(svc),
-	// ...
+	svc := stringService{}
+	svc = loggingMiddleware{logger, svc}
+
+	uppercaseHandler := httptransport.Server{
+		Endpoint: makeUppercaseEndpoint(svc),
+		// ...
+	}
+
+	countHandler := httptransport.Server{
+		Endpoint: makeCountEndpoint(svc),
+		// ...
+	}
 }
 ```
 
@@ -338,12 +351,111 @@ Speaking of instrumentation...
 
 Proper instrumentation is just as important as logging.
 But what is instrumentation? There are potentially several definitions.
-In Go kit, instrumentation means using **package metrics** to record meaningful statistics about your service's runtime behavior.
+In Go kit, instrumentation means using **package metrics** to record statistics about your service's runtime behavior.
 Counting the number of jobs processed,
  recording the duration of requests after they've finished,
   and tracking the number of in-flight operations would all be considered instrumentation.
 
+We can use the same middleware pattern that we used for logging.
 
+```go
+type instrumentingMiddleware struct {
+	requestCount   metrics.Counter
+	requestLatency metrics.TimeHistogram
+	countResult    metrics.Histogram
+	StringService
+}
+
+func (mw instrumentingMiddleware) Uppercase(s string) (output string, err error) {
+	defer func(begin time.Time) {
+		methodField := metrics.Field{Key: "method", Value: "uppercase"}
+		errorField := metrics.Field{Key: "error", Value: fmt.Sprintf("%v", err)}
+		mw.requestCount.With(methodField).With(errorField).Add(1)
+		mw.requestLatency.With(methodField).With(errorField).Observe(time.Since(begin))
+	}(time.Now())
+
+	output, err = mw.StringService.Uppercase(s)
+	return
+}
+
+func (mw instrumentingMiddleware) Count(s string) (n int) {
+	defer func(begin time.Time) {
+		methodField := metrics.Field{Key: "method", Value: "count"}
+		errorField := metrics.Field{Key: "error", Value: fmt.Sprintf("%v", error(nil))}
+		mw.requestCount.With(methodField).With(errorField).Add(1)
+		mw.requestLatency.With(methodField).With(errorField).Observe(time.Since(begin))
+		mw.countResult.Observe(int64(n))
+	}(time.Now())
+
+	n = mw.StringService.Count(s)
+	return
+}
+```
+
+And wire it into our service.
+
+```go
+import (
+	stdprometheus "github.com/prometheus/client_golang/prometheus"
+	kitprometheus "github.com/go-kit/kit/metrics/prometheus"
+	"github.com/go-kit/kit/metrics"
+)
+
+func main() {
+	logger := log.NewLogfmtLogger(os.Stderr)
+
+	fieldKeys := []string{"method", "error"}
+	requestCount := kitprometheus.NewCounter(stdprometheus.CounterOpts{
+		// ...
+	}, fieldKeys)
+
+	requestLatency := metrics.NewTimeHistogram(time.Microsecond, kitprometheus.NewSummary(stdprometheus.SummaryOpts{
+		// ...
+	}, fieldKeys))
+
+	countResult := kitprometheus.NewSummary(stdprometheus.SummaryOpts{
+		// ...
+	}, []string{}))
+
+	svc := stringService{}
+	svc = loggingMiddleware(logger, svc)
+	svc = instrumentingMiddleware{requestCount, requestLatency, countResult, svc}
+
+	uppercaseHandler := httptransport.Server{
+		Endpoint: makeUppercaseEndpoint(svc),
+		// ...
+	}
+
+	countHandler := httptransport.Server{
+		Endpoint: makeCountEndpoint(svc),
+		// ...
+	}
+}
+```
+
+### stringsvc2
+
+The complete service so far is [stringsvc2][].
+
+[stringsvc2]: https://github.com/go-kit/kit/blob/master/examples/stringsvc2
+
+```
+$ go get github.com/go-kit/kit/examples/stringsvc2
+$ stringsvc2
+msg=HTTP addr=:8080
+```
+
+```
+$ curl -XPOST -d'{"s":"hello, world"}' localhost:8080/uppercase
+{"v":"HELLO, WORLD","err":null}
+$ curl -XPOST -d'{"s":"hello, world"}' localhost:8080/count
+{"v":12}
+```
+
+```
+method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=2.455µs
+method=count input="hello, world" n=12 took=743ns
+```
 
 ## Calling other services
 
