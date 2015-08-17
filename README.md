@@ -76,10 +76,10 @@ to encourage both of these best practices.
 ### Metrics (Instrumentation)
 
 Services can't be considered production-ready until they're thoroughly
-instrumented  with metrics that track counts, latency, health, and other
+instrumented with metrics that track counts, latency, health, and other
 periodic or per-request information. Go kit's [metrics package][metrics]
 provides a robust common set of interfaces for instrumenting your service.
-Bindings exist for common systems, from [expvar][] to [statsd][] to
+Bindings exist for common backends, from [expvar][] to [statsd][] to
 [Prometheus][].
 
 [metrics]: https://github.com/go-kit/kit/tree/master/metrics
@@ -102,12 +102,12 @@ support is planned.)
 
 ### Service discovery and load balancing
 
-If your service calls another service, it needs to know how to find it,  and
+If your service calls another service, it needs to know how to find it, and
 should intelligently spread its load among those discovered instances. Go
 kit's [loadbalancer package][loadbalancer] provides client-side endpoint
-middleware to solve that problem,  whether your organization uses static hosts
+middleware to solve that problem, whether your organization uses static hosts
 or IPs, [DNS SRV records][dnssrv], Consul, etcd, or Zookeeper. And if you use
-a custom system, it's very easy to write your own [publisher][] and use Go
+a custom system, it's very easy to write your own [Publisher][] and use Go
 kit's load balancing strategies. (Currently, static hosts and DNS SRV are
 supported; Consul, etcd, and Zookeeper support is planned.)
 
