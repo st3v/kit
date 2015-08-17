@@ -459,8 +459,7 @@ It's rare that a service exists in a vacuum.
 Often, you need to call other services.
 **This is where Go kit shines**.
 We provide transport middlewares to solve many of the problems that come up.
-
-Let's provide a commandline flag to proxy uppercase requests to another service.
+Let's provide a commandline flag to our stringsvc to proxy uppercase requests somewher else.
 
 ```go
 func main() {
@@ -490,20 +489,20 @@ func makeUppercaseProxy(url string) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		var buf bytes.Buffer
 		if err := json.NewEncoder(&buf).Encode(request); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("proxy: Encode: %v", err)
 		}
-		req, err := http.NewRequest("GET", url, buf)
+		req, err := http.NewRequest("GET", url, &buf)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("proxy: NewRequest: %v", err)
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("proxy: HTTP Client Do: %v", err)
 		}
 		defer resp.Body.Close()
 		var response uppercaseResponse
 		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("proxy: Decode: %v", err)
 		}
 		return response, nil
 	}
@@ -563,12 +562,13 @@ uppercase = endpoint.Chain(
 What we've built so far is fine, as long as the proxying service has a single fixed URL.
 But in reality, we'll probably have a set of stateless service instances to choose from.
 And they'll probably be dynamic, constantly changing as instances come up and go down.
-So, Go kit provides adapters to service discovery systems.
+This is the realm of service discovery.
+And Go kit provides adapters to service discovery systems.
 
 How to construct those adapters differs depending on the specifics of the system.
 But they all implement the same [loadbalancer.Publisher][publisher] interface.
-From there, we can wrap them with one of several [loadbalancer.LoadBalancer][loadbalancer] implementations.
-Finally, a [loadbalancer.Retry][retry] converts the load balancer to a client endpoint.
+From there, we can wrap them with one of several [loadbalancer.LoadBalancer][loadbalancer] implementations, like random or round-robin.
+Finally, a [loadbalancer.Retry][retry] converts the load balancer to a usable client endpoint.
 
 [publisher]: https://godoc.org/github.com/go-kit/kit/loadbalancer#Publisher
 [loadBalancer]: https://godoc.org/github.com/go-kit/kit/loadbalancer#LoadBalancer
@@ -586,17 +586,64 @@ clientEndpoint := loadbalancer.Retry(maxAttempts, maxTime, lb)
 
 The factory is a function that converts an instance string (typically a host:port) to an endpoint.
 
-```
+```go
 func factory(instance string) (endpoint.Endpoint, error) {
-	// TODO
+	return makeUppercaseProxy("http://" + instance + "/uppercase"), nil
 }
 ```
 
-TODO note how we need to change the way we produce and apply rate limiters and circuit breakers.
+But that's not enough.
+At a minimum, we should add a circuit breaker, and perhaps rate limiting.
+And we should add them to each individual endpoint, rather than the aggregate load-balanced endpoint.
+
+```go
+func factory(instance string) (endpoint.Endpoint, error) {
+	var e endpoint.Endpoint
+	e = makeUppercaseProxy("http://" + instance + "/uppercase")
+	e = circuitbreaker.NewGobreaker(gobreaker.NewBreaker(gobreaker.Settings{}))(e)
+	e = kitratelimit.NewTokenBucketLimiter(jujuratelimit.NewBucketWithRate(100, 100))(e) // 100 QPS
+	return e
+}
+```
 
 ### Using a service middleware
 
-TODO
+Of course, we'd like to log and instrument the requests we forward to the remote service.
+We can't do that effectively in the endpoint domain, as we don't have access to request parameters.
+We need to be in the service domain for that.
+So, let's write a service middleware, to proxy Uppercase requests.
+
+```go
+type proxyingMiddleware struct {
+	context.Context
+	UppercaseEndpoint endpoint.Endpoint // load-balanced
+	StringService                       // for all other requests i.e. Count
+}
+
+func (mw proxyingMiddleware) Uppercase(s string) (string, error) {
+	response, err := mw.UppercaseEndpoint(mw.Context, uppercaseRequest{S: s})
+	if err != nil {
+		return "", err
+	}
+	resp := response.(uppercaseResponse)
+	return resp.V, resp.Err
+}
+```
+
+If the user specifies the -proxy flag, we can wire it in to the component graph.
+
+```go
+var svc StringService
+svc = stringService{}
+if *proxy != "" {
+	svc = proxyingMiddleware(*proxy, ctx, logger)(svc)
+	_ = logger.Log("proxy", *proxy)
+} else {
+	_ = logger.Log("proxy", "none")
+}
+svc = loggingMiddleware(logger)(svc)
+svc = instrumentingMiddleware(requestCount, requestLatency, countResult)(svc)
+```
 
 ### stringsvc3
 
@@ -608,8 +655,10 @@ The complete service so far is [stringsvc3][].
 $ go get github.com/go-kit/kit/examples/stringsvc3
 $ stringsvc3 -listen=:8001 &
 listen=:8001 proxy=none
+listen=:8001 msg=HTTP addr=:8001
 $ stringsvc3 -listen=:8002 -proxy=localhost:8001
 listen=:8002 proxy=localhost:8001
+listen=:8002 msg=HTTP addr=:8002
 ```
 
 ```
@@ -618,24 +667,26 @@ $ curl -XPOST -d'{"s":"hello, world"}' localhost:8002/uppercase
 ```
 
 ```
-listen=:8001 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=2.455µs
-listen=:8002 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=133ms
+listen=:8001 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=2.119µs
+listen=:8002 method=uppercase input="hello, world" output="HELLO, WORLD" err=null took=18.119568ms
 ```
 
 ## Advanced topics
 
-### Creating a client package
-
-TODO
-
 ### Request tracing
 
-TODO
+Once your infrastructure grows beyond a certain size, it becomes important to trace requests through multiple services, so you can identify and troubleshoot hotspots.
+See [package tracing](https://github.com/go-kit/kit/tracing) for more information.
+
+### Creating a client package
+
+It's possible to use Go kit to create a client package to your service, to make consuming your service easier from other Go programs.
+Effectively, your client package will provide an implementation of your service interface, which invokes a remote service instance using a specific transport.
+An example is in the works. Stay tuned.
 
 ### Threading a context
 
-TODO
-
-## The final product
-
-TODO
+The context object is used to carry information across conceptual boundaries in the scope of a single request.
+In our example, we haven't threaded the context through our business logic.
+But it may be useful to do so, to get access to request-scoped information like trace IDs.
+It may also be possible to pass things like loggers and metrics objects through the context, although this is not currently recommended.

@@ -23,16 +23,8 @@ import (
 
 func proxyingMiddleware(proxyList string, ctx context.Context, logger log.Logger) func(StringService) StringService {
 	return func(next StringService) StringService {
-		if proxyList == "" {
-			_ = logger.Log("proxy", "none")
-			return next
-		}
-
-		instances := split(proxyList)
-		_ = logger.Log("proxy", fmt.Sprint(instances))
-
 		var (
-			publisher   = static.NewPublisher(instances, factory, logger) // could use any Publisher here
+			publisher   = static.NewPublisher(split(proxyList), factory, logger) // could use any Publisher here
 			lb          = loadbalancer.NewRoundRobin(publisher)
 			maxAttempts = 3
 			maxTime     = 100 * time.Millisecond
@@ -42,6 +34,9 @@ func proxyingMiddleware(proxyList string, ctx context.Context, logger log.Logger
 	}
 }
 
+// proxymw implements StringService, forwarding Uppercase requests to the
+// provided endpoint, and serving all other (i.e. Count) requests via the
+// embedded StringService.
 type proxymw struct {
 	context.Context
 	UppercaseEndpoint endpoint.Endpoint
@@ -49,14 +44,18 @@ type proxymw struct {
 }
 
 func (mw proxymw) Uppercase(s string) (string, error) {
+	// Translate business-domain to endpoint-domain.
 	response, err := mw.UppercaseEndpoint(mw.Context, uppercaseRequest{S: s})
 	if err != nil {
 		return "", err
 	}
+
+	// Translate endpoint-domain to business-domain.
 	resp := response.(uppercaseResponse)
 	return resp.V, resp.Err
 }
 
+// factory is an endpoint factory for Uppercase RPCs.
 func factory(instance string) (endpoint.Endpoint, error) {
 	if !strings.HasPrefix(instance, "http") {
 		instance = "http://" + instance
@@ -71,9 +70,11 @@ func factory(instance string) (endpoint.Endpoint, error) {
 		u.Path = "/uppercase"
 	}
 
+	// Each individual instance should be wrapped with our circuit breaker and
+	// rate limiter. Otherwise, we don't really reap any benefit.
 	var e endpoint.Endpoint
 	e = makeUppercaseProxy(u.String())
-	e = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{}))(e)   // circuit breaker on each individual instance
+	e = circuitbreaker.Gobreaker(gobreaker.NewCircuitBreaker(gobreaker.Settings{}))(e)
 	e = kitratelimit.NewTokenBucketLimiter(jujuratelimit.NewBucketWithRate(100, 100))(e) // 100 QPS per instance
 
 	return e, nil

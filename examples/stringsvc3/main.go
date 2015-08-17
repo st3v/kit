@@ -50,7 +50,12 @@ func main() {
 
 	var svc StringService
 	svc = stringService{}
-	svc = proxyingMiddleware(*proxy, ctx, logger)(svc)
+	if *proxy != "" {
+		svc = proxyingMiddleware(*proxy, ctx, logger)(svc)
+		_ = logger.Log("proxy", *proxy)
+	} else {
+		_ = logger.Log("proxy", "none")
+	}
 	svc = loggingMiddleware(logger)(svc)
 	svc = instrumentingMiddleware(requestCount, requestLatency, countResult)(svc)
 
