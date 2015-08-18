@@ -7,9 +7,12 @@ import (
 )
 
 func main() {
-	var logger log.Logger
-	logger = log.NewLogfmtLogger(os.Stderr)
-	logger = log.NewContext(logger).With("caller", log.DefaultCaller)
+	var a log.Logger
+	a = log.NewLogfmtLogger(os.Stderr)
+	a = log.NewContext(a).With("caller", log.DefaultCaller)
+	_ = a.Log("msg", "a")
 
-	_ = logger.Log("msg", "hello")
+	b1 := log.NewLogfmtLogger(os.Stderr)
+	b2 := log.NewContext(b1).With("caller", log.DefaultCaller)
+	_ = b2.Log("msg", "b")
 }
